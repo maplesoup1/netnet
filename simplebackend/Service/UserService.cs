@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
 namespace simplebackend.services
 {
     public class UserService : IUserService
@@ -42,43 +43,50 @@ namespace simplebackend.services
             }
         }
 
-        public async Task<User> CreateUserAsync(string username, string email, string password)
+        public static string HashPassword(string password, byte[] salt = null, int iterations = 10000)
         {
+            if (salt == null)
+            {
+                salt = RandomNumberGenerator.GetBytes(16);
+            }
+
+            using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, iterations, HashAlgorithmName.SHA256);
+            byte[] hash = pbkdf2.GetBytes(32);
+            byte[] hashBytes = new byte[48];
+            Array.Copy(salt, 0, hashBytes, 0, 16);
+            Array.Copy(hash, 0, hashBytes, 16, 32);
+
+            return Convert.ToBase64String(hashBytes);
+        }
+        public async Task<User> CreateUserAsync(User user)
+        {
+            user.Password = HashPassword(user.Password);
             try
             {
-                var user = new User
-                {
-                    Username = username,
-                    Email = email,
-                    Password = password
-                };
                 return await _userRepository.CreateUser(user);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating user with username {Username} and email {Email}", username, email);
+                _logger.LogError(ex, "Error creating user with username {Username} and email {Email}", user.Username, user.Email);
                 throw;
             }
         }
 
-        public async Task<User> UpdateUserAsync(int userId, string username, string email, string password)
+        public async Task<User> UpdateUserAsync(User user)
         {
             try
             {
-                var user = await _userRepository.GetByIdAsync(userId);
+                var userfounded = await _userRepository.GetByIdAsync(user.Id);
                 if (user == null)
                 {
-                    _logger.LogWarning("User with ID {UserId} not found", userId);
+                    _logger.LogWarning("User with ID {UserId} not found", user?.Id);
                     return null;
                 }
-                user.Username = username;
-                user.Email = email;
-                user.Password = password;
                 return await _userRepository.UpdateUser(user);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating user with ID {UserId}", userId);
+                _logger.LogError(ex, "Error updating user with ID {UserId}", user?.Id);
                 throw;
             }
         }
@@ -105,7 +113,25 @@ namespace simplebackend.services
 
         private bool VerifyPassword(string inputPassword, string storedPassword)
         {
-            return inputPassword == storedPassword;
+            if (string.IsNullOrEmpty(inputPassword) || string.IsNullOrEmpty(storedPassword))
+            {
+                return false;
+            }
+            byte[] hashBytes = Convert.FromBase64String(storedPassword);
+            byte[] salt = new byte[16];
+            Array.Copy(hashBytes, 0, salt, 0, 16);
+            int iterations = 10000;
+            using (var pbkdf2 = new Rfc2898DeriveBytes(inputPassword, salt, iterations, HashAlgorithmName.SHA256))
+            {
+                byte[] hash = pbkdf2.GetBytes(32);
+                for (int i = 0; i < 32; i++)
+                {
+                    if (hashBytes[i + 16] != hash[i])
+                        return false;
+                }
+            }
+
+            return true;
         }
 
         public async Task<User> AuthenticateAsync(string usernameOrEmail, string password)

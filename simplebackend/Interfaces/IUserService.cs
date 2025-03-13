@@ -8,8 +8,8 @@ namespace simplebackend.Interfaces
     {
         Task<User> GetUserByIdAsync(int userId);
         Task<IEnumerable<User>> GetAllUsersAsync();
-        Task<User> CreateUserAsync(string username, string email, string password);
-        Task<User> UpdateUserAsync(int userId, string username, string email, string password);
+        Task<User> CreateUserAsync(User user);
+        Task<User> UpdateUserAsync(User user);
         Task<bool> DeleteUserAsync(int userId);
         
         Task<User> AuthenticateAsync(string usernameOrEmail, string password);
